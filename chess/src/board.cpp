@@ -16,9 +16,10 @@ Board::Board(){
 
     //  Using FEN we can write any position and compute it easily 
 
-    //string startingPosition = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    //string startingPosition = "8/2p5/8/KP5r/8/8/8/7k b - - 0 1";
-    string startingPosition = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1";
+    string startingPosition = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    //string startingPosition = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+    //string startingPosition = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1";
+    //string startingPosition = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
 
     
     parseFENPosition(startingPosition);
@@ -39,7 +40,6 @@ Board::Board(){
         startingPos.y += TILESIZE;
     }
 
-    positionGame.push_back(startingPosition);
 
 }
 
@@ -55,10 +55,9 @@ Board::Board(const Board& other) {
 
     // 2. Copy vectors
     posOfPieces = other.posOfPieces;
-    positionGame = other.positionGame;
 
     // 3. Copy strings and simple attributes
-    lastPosition = other.lastPosition;
+    lastMove = other.lastMove;
     nbMoves = other.nbMoves;
     turnToMove = other.turnToMove;
     nbHalfMoves = other.nbHalfMoves;
@@ -134,12 +133,30 @@ std::string Board::posToFen(){
 
     //  Castling rights
     fen += " ";
-    fen += "-";
+
+    if(tiles[7][4].neverMoved){
+        if(tiles[7][7].neverMoved)fen += 'K';
+        if(tiles[7][0].neverMoved) fen += 'Q';
+    }
+    if(tiles[0][4].neverMoved){
+        if(tiles[0][7].neverMoved) fen += 'k';
+        if(tiles[0][0].neverMoved) fen += 'q';
+    }
+
+    if(!(tiles[7][4].neverMoved || tiles[0][4].neverMoved)){
+        fen += "-";
+    }
 
     //  En passant
     fen += " ";
-    fen += "-";
 
+    if(enPassantActive){
+        fen += toAlgebraic(enPassantTarget);
+    }else{
+        fen += "-";
+    }
+    
+    
     //  HalfMoves
     fen += " ";
     fen += std::to_string(nbHalfMoves);
@@ -172,7 +189,8 @@ char pieceToFen(Tile t){
 
 void Board::parseFENPosition(string position){
 
-    //  Used a hashMap because gpt said so apparently its O(1) to access elements
+    posOfPieces.clear(); 
+
 
     std::unordered_map<char, std::pair<int, int>> pieceMap = {
         {'p', {PAWN, BLACK}}, {'n', {KNIGHT, BLACK}}, {'b', {BISHOP, BLACK}}, {'r', {ROOK, BLACK}},
@@ -216,6 +234,7 @@ void Board::parseFENPosition(string position){
 
             for(int k = 0; k < step; k++){
                 tiles[iTab][jTab].piece = NONE;
+                tiles[iTab][jTab].color = -1;
                 jTab++;
             }
         }
@@ -260,7 +279,6 @@ void Board::parseFENPosition(string position){
     }
 
 
-    lastPosition = position;
     nbHalfMoves = std::stoi(fenPosition[4]);
     nbMoves = std::stoi(fenPosition[5]);
 
@@ -274,9 +292,12 @@ Position translateAlgebraic(string s){
     }
 
     int i = s[0] - 'a';
-    int j = s[1] - '0';
-    return {i, j};
+    int j = abs(s[1] - '8');
+    return {j, i};
 }
+
+
+
 
 std::vector<std::string> split(const std::string& str, char delimiter) {
 
@@ -309,8 +330,6 @@ std::vector<std::string> split(const std::string& str, char delimiter) {
 
 
 
-
-
 void Board::generateAllMoves(){
     //  Init all moves in the board, currently not used anywhere I hope I wont need it
 
@@ -323,9 +342,16 @@ void Board::generateAllMoves(){
     }
 }
 
+
+
 void Board::generateLegalMoves(Tile& tile){
-    generateMoves(tile);
-    tile.legalMoves = filterLegalMoves(tile);
+    tile.legalMoves.clear();
+
+    if(tile.color == turnToMove){
+        generateMoves(tile);
+        tile.legalMoves = filterLegalMoves(tile);
+    }
+    
 }
 
 
@@ -339,28 +365,23 @@ void Board::generateMoves(Tile& tile){
     tile.legalMoves.clear();
 
     Position startingSquare = tile.currentPos;
-    vector<Position> targetSquares;
+    vector<Move> targetSquares;
 
     
     //  Lambda functions used to init the moves of a Pawn
 
     //  Init the moves of a pawn moving Forward
 
-    auto addTargetSquare = [&](const Position& pos){
-        if(notOutOfBonds(pos) && tiles[pos.x][pos.y].piece == NONE){
-            targetSquares.push_back(pos);
-        }
-    };
-
     //  Capturing Moves of a Pawn
 
     auto addCaptureSquare = [&](const Position& pos){
         if(notOutOfBonds(pos) && tile.isEnnemy(tiles[pos.x][pos.y])){
-            targetSquares.push_back(pos);
+            targetSquares.push_back({CAPTURE, startingSquare, pos, tiles[pos.x][pos.y].piece});
         }
     };
 
     switch(tile.piece){
+
         case PAWN:{
 
             //  Depends on the color 
@@ -369,20 +390,22 @@ void Board::generateMoves(Tile& tile){
             //  Pretty straightforward
 
             Position forward = {startingSquare.x + direction, startingSquare.y};
-            addTargetSquare(forward);
 
+            if(notOutOfBonds(forward) && tiles[forward.x][forward.y].piece == NONE){
+                targetSquares.push_back({QUIET, startingSquare, forward});
 
-            //  if the pawn never moved he can move up 2 squares
-            if(tile.neverMoved && tiles[forward.x][forward.y].piece == NONE){
-                Position forward = {startingSquare.x + (direction * 2), startingSquare.y};
-                addTargetSquare(forward);
+                //  if the pawn never moved he can move up 2 squares
+                if(tiles[forward.x + direction][forward.y].piece == NONE && tile.neverMoved){
+                    targetSquares.push_back({D_PAWN_PUSH, startingSquare, {forward.x + direction, forward.y}});
+                }
             }
+
 
             Position captureLeft = {startingSquare.x + direction, startingSquare.y - 1};
             Position captureRight = {startingSquare.x + direction, startingSquare.y + 1};
 
-            if(captureLeft == enPassantTarget) targetSquares.push_back(captureLeft);
-            if(captureRight == enPassantTarget) targetSquares.push_back(captureRight);
+            if(captureLeft == enPassantTarget && tile.isEnnemy(tiles[captureLeft.x - direction][captureLeft.y])) targetSquares.push_back({EP_CAPTURE, startingSquare, captureLeft});
+            if(captureRight == enPassantTarget && tile.isEnnemy(tiles[captureRight.x - direction][captureRight.y])) targetSquares.push_back({EP_CAPTURE, startingSquare, captureRight});
 
             addCaptureSquare(captureLeft);
             addCaptureSquare(captureRight);
@@ -398,9 +421,14 @@ void Board::generateMoves(Tile& tile){
             for(int i = 0; i < 8; i++){
                 Position pos = {startingSquare.x + directions[i].x, startingSquare.y + directions[i].y};
 
-                if(notOutOfBonds(pos) && (tile.notBlockedBy(tiles[pos.x][pos.y]))){
-                    targetSquares.push_back(pos);
-                } // || tile.isEnnemy(tiles[pos.x][pos.y]))
+                if(notOutOfBonds(pos)){
+                    if(tile.isEnnemy(tiles[pos.x][pos.y])){
+                        targetSquares.push_back({CAPTURE, startingSquare, pos, tiles[pos.x][pos.y].piece});
+                    }
+                    else if (tiles[pos.x][pos.y].piece == NONE){
+                        targetSquares.push_back({QUIET, startingSquare, pos});
+                    }
+                }
             }
             break;
         }
@@ -426,15 +454,16 @@ void Board::generateMoves(Tile& tile){
 
                     if(!tile.notBlockedBy(tiles[moving.x][moving.y])) break;
                     if(tile.isEnnemy(tiles[moving.x][moving.y])){
-                        targetSquares.push_back(moving);
+                        targetSquares.push_back({CAPTURE, startingSquare, moving, tiles[moving.x][moving.y].piece});
                         break;
                     }
 
-                    targetSquares.push_back(moving);
+                    targetSquares.push_back({QUIET, startingSquare, moving});
                 }
             }
             break;
         }
+
 
         case KING:{
             Position directions[8] = {{-1, -1}, {-1, 1}, {1, -1}, {1, 1}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}};
@@ -442,9 +471,15 @@ void Board::generateMoves(Tile& tile){
             for(int i = 0; i < 8; i++){
                 Position moving = {startingSquare.x + directions[i].x, startingSquare.y + directions[i].y};
 
-                if(notOutOfBonds(moving) && (tile.notBlockedBy(tiles[moving.x][moving.y]))){
-                    targetSquares.push_back(moving);
+                if(notOutOfBonds(moving)){
+                    if(tiles[moving.x][moving.y].piece == NONE){
+                        targetSquares.push_back({QUIET, startingSquare, moving});
+                    }
+                    else if(tile.isEnnemy(tiles[moving.x][moving.y])){
+                        targetSquares.push_back({CAPTURE, startingSquare, moving, tiles[moving.x][moving.y].piece});
+                    }
                 }
+                    
             }
 
             tile.legalMoves = targetSquares;
@@ -460,17 +495,17 @@ void Board::generateMoves(Tile& tile){
                 
                 if(tile.notBlockedBy(tiles[castleKingSide.x][castleKingSide.y])){
 
-                    if(tile.isInLegalMoves({castleKingSide.x, castleKingSide.y - 1}) && tiles[castleKingSide.x][castleKingSide.y + 1].neverMoved){
+                    if(tile.isInLegalMoves({QUIET, startingSquare, {castleKingSide.x, castleKingSide.y - 1}}) && tiles[castleKingSide.x][castleKingSide.y + 1].neverMoved){
 
                         if(!isKingInCheck(tile.color)){
-                            tile.legalMoves.push_back(castleKingSide);
+                            tile.legalMoves.push_back({KCASTLE, startingSquare, castleKingSide});
                         }
                     }
                 }
                 if (tile.notBlockedBy(tiles[castleQueenSide.x][castleQueenSide.y])){
-                    if(tile.isInLegalMoves({castleQueenSide.x, castleQueenSide.y + 1}) && tiles[castleQueenSide.x][castleQueenSide.y - 2].neverMoved){
+                    if(tile.isInLegalMoves({QUIET, startingSquare, {castleQueenSide.x, castleQueenSide.y + 1}}) && tiles[castleQueenSide.x][castleQueenSide.y - 2].neverMoved){
                         if(!isKingInCheck(tile.color)){
-                            tile.legalMoves.push_back(castleQueenSide);
+                            tile.legalMoves.push_back({QCASTLE, startingSquare, castleQueenSide});
                         }
                     }
                 }
@@ -537,15 +572,38 @@ vector<Position> getDirectionSlidingPiece(Tile t){
 
 
 
+
+
 //  This function is used to make a move in the board, the things that are changing are the board.tiles and board.posPiece
 //  the tiles used as parameter, I choose to parse by reference to change board.tiles, it basically swap two tiles when making a move, or create a whole new tile with the piece needed
 
-void Board::tryMakeMove(Tile& start, Tile& target){
+void Board::tryMakeMove(Move move){
 
-    if(start.piece == KING){
+    Tile& start = tiles[move.start.x][move.start.y];
+    Tile& target = tiles[move.target.x][move.target.y];
 
-        //  Castling (might create a new function for better readability)
-        if(abs(target.currentPos.y - start.currentPos.y) == 2){
+    switch(move.type){
+        case QUIET:{
+            target.setPiece(start);
+            start.setPiece(NONE, -1);
+            std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos); 
+            break;
+        }
+        case D_PAWN_PUSH:{
+            int direction = (start.color == WHITE) ? -1 : 1;
+            
+            target.setPiece(start);
+            start.setPiece(NONE, -1);
+            std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
+            
+            enPassantActive = true;
+            enPassantTarget = {start.currentPos.x + direction, start.currentPos.y};
+
+            break;
+        }
+    
+        case KCASTLE:
+        case QCASTLE:{
 
             int rookPosY = ((target.currentPos.y - start.currentPos.y) > 0) ? 1 : -2;
             int rookNewPos = (rookPosY > 0) ? -1 : 1;
@@ -559,18 +617,22 @@ void Board::tryMakeMove(Tile& start, Tile& target){
             std::replace(posOfPieces.begin(), posOfPieces.end(), tiles[target.currentPos.x][target.currentPos.y + rookPosY].currentPos, tiles[target.currentPos.x][target.currentPos.y + rookNewPos].currentPos);
             std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
 
-            return;
+            break;
         }
-    }
+        
+        case CAPTURE:{
+            posOfPieces.erase(std::remove(posOfPieces.begin(), posOfPieces.end(), target.currentPos), posOfPieces.end());
+            std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
 
-    if(start.piece == PAWN){
-        int direction = (start.color == WHITE) ? -1 : 1;
+            target.setPiece(start);
+            start.setPiece(NONE, -1);  
 
+            break;
+        }
 
+        case EP_CAPTURE:{
+            int direction = (start.color == WHITE) ? -1 : 1;
 
-        //  En passant move
-        if(enPassantActive && (target.currentPos == enPassantTarget)){
-            
             std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
             posOfPieces.erase(std::remove(posOfPieces.begin(), posOfPieces.end(), tiles[target.currentPos.x - direction][target.currentPos.y].currentPos), posOfPieces.end());
 
@@ -581,41 +643,27 @@ void Board::tryMakeMove(Tile& start, Tile& target){
             enPassantActive = false;
             enPassantTarget = {-1, -1};
 
-            return;
+            break;
+
         }
-
-
-
-        //  Double pawn push
-        if(abs(target.currentPos.x - start.currentPos.x) == 2){
-            target.setPiece(start);
-            start.setPiece(NONE, -1);
-            
-            enPassantActive = true;
-            enPassantTarget = {start.currentPos.x + direction, start.currentPos.y};
-
-            return;
+        case N_PROMOTION:
+        case B_PROMOTION:
+        case R_PROMOTION:
+        case Q_PROMOTION:
+        case N_PROMOTION_CAPTURE:
+        case B_PROMOTION_CAPTURE:
+        case R_PROMOTION_CAPTURE:
+        case Q_PROMOTION_CAPTURE:{
+            break;
         }
-
-
-        //  Pawn promotion
-
     }
 
-    //  if another move is played when an enpassant is possible we loose the ability to do it
-
-    if(enPassantActive){
+    if(enPassantActive && move.type != D_PAWN_PUSH){
         enPassantActive = false;
-        enPassantTarget = {-1, 1};
+        enPassantTarget = {-1, -1};
     }
-
-    //  Any move that is not enPassant, double pawn push or Castling
-
-    target.setPiece(start);
-    start.setPiece(NONE, -1);
-    std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
-
 }
+
 
 void Board::makePromotion(Tile& target, int choice){
 
@@ -630,42 +678,139 @@ void Board::makePromotion(Tile& target, int choice){
 //  Splited this concept into 2 different functions to use the one that really make moves in the filter legalMoves function
 //  get the pos of the game to maybe in the future write it into a file that contains all the moves of the game
 
-void Board::makeMove(Tile& start, Tile& target){
-    lastPosition = posToFen();
-    
-    undoStack.push(lastPosition);
+void Board::makeMove(Move move){
+    //int turn = tiles[move.start.x][move.start.y].color;
 
-    tryMakeMove(start, target);
+        lastMove = move;
+        //undoStack.push(lastPosition);
+        
+        tryMakeMove(move);
 
-    while(!redoStack.empty()) redoStack.pop();
+        //while(!redoStack.empty()) redoStack.pop();
 
-    std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
-    changeTurn();
-
-    positionGame.push_back(lastPosition);
+        //std::replace(posOfPieces.begin(), posOfPieces.end(), start.currentPos, target.currentPos);
+        changeTurn();
 }
 
 
 
-void Board::undoMove(){
-    if(!undoStack.empty()){
+void Board::undoLastMove(){
+    /*if(!undoStack.empty()){
         string lastMove = undoStack.top();
         redoStack.push(posToFen());
 
         parseFENPosition(lastMove);
         undoStack.pop();
+    }*/
+    Move nullMove = {-1, {-1, -1}, {-1, -1}};
+    if (!(lastMove == nullMove)){
+        undoMove(lastMove);
+        lastMove = nullMove;
     }
     
 }
 
+void Board::undoMove(Move move){
+
+    Tile& start = tiles[move.start.x][move.start.y];
+    Tile& target = tiles[move.target.x][move.target.y];
+
+    switch(move.type){
+        case QUIET:{
+            start.setPiece(target);
+            target.setPiece(NONE, -1);
+            std::replace(posOfPieces.begin(), posOfPieces.end(), target.currentPos, start.currentPos); 
+            break;
+        }
+        case D_PAWN_PUSH:{
+
+            
+            start.setPiece(target);
+            start.neverMoved = true;
+
+            target.setPiece(NONE, -1);
+            std::replace(posOfPieces.begin(), posOfPieces.end(), target.currentPos, start.currentPos);
+            
+            enPassantActive = false;
+            enPassantTarget = {-1, -1};
+
+            break;
+        }
+    
+        case KCASTLE:
+        case QCASTLE:{
+
+            int rookPosY = ((target.currentPos.y - start.currentPos.y) > 0) ? 1 : -2;
+            int rookNewPos = (rookPosY > 0) ? -1 : 1;
+
+            tiles[target.currentPos.x][target.currentPos.y + rookPosY].setPiece(ROOK, target.color);
+            tiles[target.currentPos.x][target.currentPos.y + rookNewPos].setPiece(NONE, -1);
+
+            start.setPiece(target);
+            target.setPiece(NONE, -1);
+
+            std::replace(posOfPieces.begin(), posOfPieces.end(), tiles[target.currentPos.x][target.currentPos.y + rookNewPos].currentPos, tiles[target.currentPos.x][target.currentPos.y + rookPosY].currentPos);
+            std::replace(posOfPieces.begin(), posOfPieces.end(), target.currentPos, start.currentPos);
+
+            break;
+        }
+        
+        case CAPTURE:{
+            int colorOpp = (target.color == WHITE) ? BLACK : WHITE;
+
+            //posOfPieces.erase(std::remove(posOfPieces.begin(), posOfPieces.end(), target.currentPos), posOfPieces.end());
+            std::replace(posOfPieces.begin(), posOfPieces.end(), target.currentPos, start.currentPos);
+            posOfPieces.push_back(target.currentPos);
+
+            start.setPiece(target);
+            target.setPiece(move.capturedPiece, colorOpp);
+
+            break;
+        }
+
+        case EP_CAPTURE:{
+            int direction = (start.color == WHITE) ? -1 : 1;
+            int colorOpp = (target.color == WHITE) ? BLACK : WHITE;
+
+            std::replace(posOfPieces.begin(), posOfPieces.end(), target.currentPos, start.currentPos);
+            posOfPieces.push_back(tiles[target.currentPos.x - direction][target.currentPos.y].currentPos);
+
+            start.setPiece(target);
+            tiles[target.currentPos.x + direction][target.currentPos.y].setPiece(PAWN, colorOpp);
+            target.setPiece(NONE, -1);
+
+            enPassantActive = true;
+            enPassantTarget = {target.currentPos.x, target.currentPos.y};
+
+            break;
+
+        }
+        case N_PROMOTION:
+        case B_PROMOTION:
+        case R_PROMOTION:
+        case Q_PROMOTION:
+        case N_PROMOTION_CAPTURE:
+        case B_PROMOTION_CAPTURE:
+        case R_PROMOTION_CAPTURE:
+        case Q_PROMOTION_CAPTURE:{
+            break;
+        }
+    }
+
+    
+
+    changeTurn();
+}
+
 void Board::redoMove(){
+    /*
     if(!redoStack.empty()){
         string redo = redoStack.top();
         undoStack.push(posToFen());
 
         parseFENPosition(redo);
         redoStack.pop();
-    }
+    }*/
 }
 
 
@@ -673,36 +818,37 @@ void Board::redoMove(){
 //  for every legal moves we make them and create another board where the move happened and check every opponent responses
 //  if one of the opponent response is a king capture we delete the move from the tile from the parameter
 
-vector<Position> Board::filterLegalMoves(Tile t){
-    unsigned int opponent = (t.color == WHITE) ? BLACK : WHITE;
-    vector<Position> validMoves;
+vector<Move> Board::filterLegalMoves(Tile t){
+    int opponent = (t.color == WHITE) ? BLACK : WHITE;
+    vector<Move> validMoves;
     
 
-    for(const Position& moveSelPiece : t.legalMoves){
+    for(const Move& move : t.legalMoves){
         Board b = Board(*this);
 
-        b.tryMakeMove(b.tiles[t.currentPos.x][t.currentPos.y], b.tiles[moveSelPiece.x][moveSelPiece.y]);
+        b.tryMakeMove(move);
         bool isKingSafe = true;
 
-        for(Position& opponentPos : b.posOfPieces){
-            
-            Tile oppPiece = b.tiles[opponentPos.x][opponentPos.y];
+        for(int i = 0; i < BOARD; i++){
+            for(int j = 0; j < BOARD; j++){
+                Tile oppPiece = b.tiles[i][j];
 
-            if(oppPiece.color == opponent){
-                b.generateMoves(oppPiece);
+                if(oppPiece.color == opponent){
+                    b.generateMoves(oppPiece);
 
-                for(Position opp : oppPiece.legalMoves){
-                    if(b.tiles[opp.x][opp.y].piece == KING){
-                        isKingSafe = false;
-                        break;
+                    for(Move opp : oppPiece.legalMoves){
+                        if(opp.type == CAPTURE && b.tiles[opp.target.x][opp.target.y].piece == KING){
+                            isKingSafe = false;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (!isKingSafe) break;
+                if (!isKingSafe) break;
+            }
         }
 
-        if(isKingSafe) validMoves.push_back(moveSelPiece);
+        if(isKingSafe) validMoves.push_back(move);
     }
 
     return validMoves;
@@ -712,7 +858,7 @@ vector<Position> Board::filterLegalMoves(Tile t){
 
 
 bool Board::isKingInCheck(unsigned int colorPiece){
-    unsigned int colorOpp = (colorPiece == WHITE) ? BLACK : WHITE;
+    int colorOpp = (colorPiece == WHITE) ? BLACK : WHITE;
 
     for(Position opp : posOfPieces){
         Tile oppPiece = tiles[opp.x][opp.y];
@@ -720,8 +866,8 @@ bool Board::isKingInCheck(unsigned int colorPiece){
         if(oppPiece.color == colorOpp && oppPiece.piece != KING){
             generateMoves(oppPiece);
 
-            for(Position move : oppPiece.legalMoves){
-                if(tiles[move.x][move.y].piece == KING){
+            for(Move move : oppPiece.legalMoves){
+                if(move.type == CAPTURE && tiles[move.target.x][move.target.y].piece == KING){
                     return true;
                 }
             }
@@ -770,4 +916,28 @@ void Board::displayPosTiles(){
         }
         cout << "\n";
     }
+}
+
+//figd_s0FoBQD61Sfx9taRA-4yD3i0vcMRKc1F8S6NAFpF
+
+int Board::getAllMoves(Move move[], int size){
+    int i = 0;
+
+    while (i < size){
+        for(int k = 0; k < BOARD; k++){
+            for(int j = 0; j < BOARD; j++){
+                if(tiles[k][j].piece != NONE){
+                    generateLegalMoves(tiles[k][j]);
+
+                    for(Move moves : tiles[k][j].legalMoves){
+                        move[i] = moves;
+                        i++;
+                    }
+                }
+                
+            }
+        }
+        return i;
+    }
+    return size;
 }

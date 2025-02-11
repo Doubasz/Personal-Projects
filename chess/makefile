@@ -1,7 +1,7 @@
 # Variables
 CXX = g++
 CXXFLAGS = -Wall -g
-SDL2_FLAGS = `sdl2-config --cflags --libs` -lSDL2_image
+SDL2_FLAGS = `sdl2-config --cflags --libs` -lSDL2_image -lSDL2_ttf
 
 # Target
 TARGET = chess

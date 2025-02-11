@@ -5,6 +5,7 @@
 #define BLACK 6
 
 #include "def.h"
+#include "move.h"
 #include <vector>
 #include <string>
 #include <SDL2/SDL.h>
@@ -45,13 +46,11 @@ class Tile{
     public:
 
         unsigned int piece;
-        unsigned int color;
+        int color;
         
         //  Current position in the board [i][j]
         Position currentPos;
-        std::vector<Position> legalMoves;
-        std::string img;
-
+        std::vector<Move> legalMoves;
         bool neverMoved;
 
     public:
@@ -60,9 +59,12 @@ class Tile{
         void setPiece(int p, int color);
         void setPiece(Tile p);
         void addMove(Position p);
-        bool isInLegalMoves(Position p);
+        bool isInLegalMoves(Move p);
+        bool isInLegalMoves(Position trgt);
         bool notBlockedBy(Tile t);
         bool isEnnemy(Tile t);
+        Move getInLegalMoves(Position trgt);
+        void displayLegalMoves();
 };
 
 

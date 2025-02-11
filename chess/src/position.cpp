@@ -1,8 +1,5 @@
 
 #include "position.h"
-#include <vector>
-#include <iostream>
-
 
 
 Position::Position(int a, int b) : x(a), y(b) {}
@@ -52,4 +49,13 @@ void displayTab(std::vector<Position> tab){
         }
     }
     std::cout << "\n";
+}
+
+
+std::string toAlgebraic(Position pos){
+    std::string ret = "";
+    ret += pos.y + 'a';
+    ret += '8' - pos.x;
+
+    return ret;
 }

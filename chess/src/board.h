@@ -3,6 +3,7 @@
 
 #include "tile.h"
 #include "position.h"
+#include "move.h"
 #include <vector>
 #include <stack>
 
@@ -14,8 +15,7 @@ class Board{
         Tile tiles[8][8];
         Position posTiles[8][8];
         std::vector<Position> posOfPieces;
-        std::vector<std::string> positionGame;
-        std::string lastPosition;
+        Move lastMove;
 
         std::stack<std::string> undoStack;
         std::stack<std::string> redoStack; 
@@ -39,18 +39,18 @@ class Board{
         void generateMoves(Tile& tile);
         void generateAllMoves();
         void generateLegalMoves(Tile& tile);
-        void tryMakeMove(Tile& start, Tile& target);
+        void tryMakeMove(Move move);
         void makePromotion(Tile& target, int choice);
-        void makeMove(Tile& start, Tile& target);
-        void undoMove();
+        void makeMove(Move move);
+        void undoLastMove();
+        void undoMove(Move move);
         void redoMove();
         void displayBoard();
         void displayPosTiles();
+        int getAllMoves(Move move[], int size);
 
-        std::vector<Position> filterLegalMoves(Tile tile);
+        std::vector<Move> filterLegalMoves(Tile tile);
         bool isKingInCheck(unsigned int color);
-    
-
 };
 
 std::vector<std::string> split(const std::string& str, char delimiter);
@@ -59,6 +59,7 @@ Position getTileTillOutBonds(Position p);
 std::vector<Position> getDirectionSlidingPiece(Tile t);
 char pieceToFen(Tile t);
 Position translateAlgebraic(std::string s);
+
 
 
 #endif

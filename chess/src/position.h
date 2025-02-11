@@ -21,6 +21,7 @@ std::ostream& operator<<(std::ostream& os, const Position& p);
 
 Position* concat(Position p1[], Position p2[], int size1, int size2);
 void displayTab(std::vector<Position> tab);
+std::string toAlgebraic(Position pos);
 
 
 #endif

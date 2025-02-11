@@ -1,6 +1,7 @@
 #include "draw.h"
 #include "def.h"
 #include "board.h"
+#include "color.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <vector>
@@ -9,28 +10,7 @@
 
 
 
-int power(int a, int n){
-    int temp = a;
-    for(int i = 1; i < n; i++){
-        a *= temp;
-    }
-    return a;
-}
 
-Color::Color(){
-    hex = 0xFFFFFF;
-    r = g = b = 255;
-}
-
-Color::Color(uint32_t hex) : hex(hex){
-    b = (hex >> 16) & 0xFF;
-    g = (hex >> 8) & 0xFF;
-    r = hex & 0xFF;
-}
-
-Color::Color(uint8_t r, uint8_t g, uint8_t b) : r(r), g(g), b(b){
-    hex = r * power(2, 16) + g * power(2, 8) + b;
-}
 
 
 SDL_Texture* loadTexture(SDL_Renderer* renderer, char* path){
@@ -71,7 +51,7 @@ void drawBackground(SDL_Renderer*& renderer){
 
     Color bg = Color(BG_COLOR);
 
-    SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, 255);
+    SDL_SetRenderDrawColor(renderer, bg.b, bg.g, bg.r, 255);
     SDL_RenderClear(renderer);
 
 }
@@ -83,6 +63,8 @@ void drawBoard(SDL_Renderer*& renderer, Board& board, Tile* selectedPiece){
     Color black = Color(BLACK_TILE);
     Color white = Color(WHITE_TILE);
     Color red = Color(RED_MOVE);
+    //Color green = Color(0x278c42);
+    //Color yellow = Color(0xad953b);
 
     Tile temp;
     if (selectedPiece != nullptr) temp = *selectedPiece;
@@ -91,25 +73,25 @@ void drawBoard(SDL_Renderer*& renderer, Board& board, Tile* selectedPiece){
     SDL_Rect tile = SDL_Rect{STARTING_POSX, STARTING_POSY, TILESIZE, TILESIZE};
 
     for (int i = 0; i < BOARD; i++){
+        
         tile.x = STARTING_POSX;
 
         for(int j = 0; j < BOARD; j++){
             Color currentColor = Color();
             currentColor = (((i + j) % 2) == 0) ? white : black;
-
+            
             if(!temp.legalMoves.empty()){
                 if(temp.isInLegalMoves({i, j})){
                     currentColor = red;
                 }
             }
 
-            drawRect(renderer, tile, currentColor);
+            drawRect(renderer, tile, currentColor, true);
             
             tile.x += 75;
         }
         tile.y += 75;
     }
-
 }
 
 
@@ -127,15 +109,50 @@ void drawPieces(SDL_Renderer*& renderer, Board& board, std::vector<SDL_Texture*>
 
 }
 
+void drawButtons(SDL_Renderer*& renderer, std::vector<Button> buttons, TTF_Font* font){
+    for(Button button : buttons){
+        if(button.active){
+            drawButton(renderer, button, font);
+        }
+    }
+}
 
 
-void drawRect(SDL_Renderer*& renderer, SDL_Rect rect, Color color){
+
+void drawButton(SDL_Renderer*& renderer, Button button, TTF_Font* font){
+
+    if(button.isHover()){
+        drawRect(renderer, button.rect, button.colorHover, button.border);
+    }
+    else drawRect(renderer, button.rect, button.color, button.border);
+
+    if(button.text != ""){
+        SDL_Surface* textSurface = TTF_RenderText_Solid(font, button.text.c_str(), SDL_Color{button.colorText.r, button.colorText.g, button.colorText.b});
+
+        if (!textSurface) {
+            std::cerr << "Failed to create text surface: " << TTF_GetError() << std::endl;
+            exit(1);
+        }
+
+        SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+        SDL_FreeSurface(textSurface);
+
+        SDL_RenderCopy(renderer, textTexture, NULL, &button.rect);
+        SDL_DestroyTexture(textTexture);
+    }
+}
+
+
+void drawRect(SDL_Renderer*& renderer, SDL_Rect rect, Color color, bool border){
 
     SDL_SetRenderDrawColor(renderer, color.b, color.g, color.r, 255);
     SDL_RenderFillRect(renderer, &rect);
 
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderDrawRect(renderer, &rect);
+    if(border){
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderDrawRect(renderer, &rect);
+    }
+    
     
 }
 
@@ -163,7 +180,7 @@ void drawPromotion(SDL_Renderer*& renderer, Board& board, Tile target, std::vect
 
     int colorPiece = target.color;
 
-    drawRect(renderer, rect, colorRect);
+    drawRect(renderer, rect, colorRect, true);
 
     rect.w = TILESIZE;
 
